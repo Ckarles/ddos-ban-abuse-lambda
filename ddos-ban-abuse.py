@@ -41,6 +41,33 @@ def round_datetime(d, *args, **kwargs):
     rounded_td = td - td % dt.timedelta(*args, **kwargs)
     return dt.datetime.combine(d.date(), dt.time(), d.tzinfo) + rounded_td
 
+def ban_ips(session, ips):
+
+    if not TEST:
+        waf_client = session.client('waf-regional')
+
+        # get the IPSetId from the list of ipsets
+        res = waf_client.list_ip_sets()
+        IPSetId = [ k['IPSetId'] for k in res['IPSets'] if k['Name'] == 'http attack blacklist' ][0]
+
+        # update the ipset
+        change_token = waf_client.get_change_token()['ChangeToken']
+        waf_client.update_ip_set(
+            IPSetId = IPSetId,
+            ChangeToken = change_token,
+            Updates = [ {
+                'Action': 'INSERT',
+                'IPSetDescriptor': {
+                    'Type': 'IPV4',
+                    'Value': ip + '/32'
+                }   
+            } for ip in ips ]
+        )
+
+    else:
+        for ip in ips:
+            print(ip)
+
 
 def ban_abuse(session):
     """Lambda handler"""
@@ -63,9 +90,9 @@ def ban_abuse(session):
 
     # filter the IPs
     # ban if the occurence of the IP reached the threshold limit
-    banned_ips = [ ip for ip in ips if ips[ip] >= BAN_THRESHOLD ]
+    ips_to_ban = [ ip for ip in ips if ips[ip] >= BAN_THRESHOLD ]
 
-    print(banned_ips)
+    ban_ips(session, ips_to_ban)
 
 
 if __name__ == "__main__":
