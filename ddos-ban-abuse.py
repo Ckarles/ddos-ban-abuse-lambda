@@ -1,9 +1,11 @@
 import io
+import re
 import gzip
 import datetime as dt
 import boto3
 
 BUCKET_NAME = 'removed-secrets'
+BAN_THRESHOLD = 50
 
 TEST = True
 
@@ -15,7 +17,7 @@ def gz_stream_to_lines(stream):
             yield from text
 
 def get_gzip(session, logfile_prefix):
-    """Iterate chunks of gzipped-compressed data"""
+    """Get gzip stream and iterate chunks of gzipped-compressed data"""
 
     if not TEST:
         s3 = session.resource('s3')
@@ -48,9 +50,22 @@ def ban_abuse(session):
 
     logfile_prefix = 'AWSLogs/removed-secrets/elasticloadbalancing/eu-central-1/' + logfile_datetime.strftime('%Y/%m/%d') + '/removed-secrets_elasticloadbalancing_eu-central-1_removed-secrets-removed-secrets_' + logfile_datetime.strftime('%Y%m%dT%H%MZ')
 
+    ips = {}
+
     for stream in get_gzip(session, logfile_prefix):
         for line in gz_stream_to_lines(stream):
-            print(line, end='')
+
+            # extract the IP part of the 4th space-delimited content in a line of log
+            ip = re.match('^(?:[^ ]+ ){3}(.+?):.*$', line)[1]
+
+            # increment the number of occurence of this ip (default to 0) by 1
+            ips[ip] = ips.get(ip, 0) + 1
+
+    # filter the IPs
+    # ban if the occurence of the IP reached the threshold limit
+    banned_ips = [ ip for ip in ips if ips[ip] >= BAN_THRESHOLD ]
+
+    print(banned_ips)
 
 
 if __name__ == "__main__":
