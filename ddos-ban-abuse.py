@@ -6,6 +6,8 @@ import boto3
 
 BUCKET_NAME = 'removed-secrets'
 BAN_THRESHOLD = 50
+IPSET_NAME = 'ddos blacklist'
+RULE_NAME = 'match a blacklisted IPSet'
 
 TEST = True
 
@@ -15,6 +17,7 @@ def gz_stream_to_lines(stream):
     with gzip.GzipFile(fileobj=stream) as bytes:
         with io.TextIOWrapper(bytes) as text:
             yield from text
+
 
 def get_gzip(session, logfile_prefix):
     """Get gzip stream and iterate chunks of gzipped-compressed data"""
@@ -29,6 +32,7 @@ def get_gzip(session, logfile_prefix):
         with open('test.log.gz', 'rb') as gz_stream:
             yield gz_stream
 
+
 def round_datetime(d, *args, **kwargs):
     """Round a datetime with a specific modulus"""
 
@@ -41,19 +45,73 @@ def round_datetime(d, *args, **kwargs):
     rounded_td = td - td % dt.timedelta(*args, **kwargs)
     return dt.datetime.combine(d.date(), dt.time(), d.tzinfo) + rounded_td
 
-def ban_ips(session, ips):
 
-    if not TEST:
-        waf_client = session.client('waf-regional')
+class IPset:
 
-        # get the IPSetId from the list of ipsets
-        res = waf_client.list_ip_sets()
-        IPSetId = [ k['IPSetId'] for k in res['IPSets'] if k['Name'] == 'http attack blacklist' ][0]
+    def __init__(self, session):
+        self.client = session.client('waf-regional')
+        self.ipset_name = IPSET_NAME
 
-        # update the ipset
-        change_token = waf_client.get_change_token()['ChangeToken']
-        waf_client.update_ip_set(
-            IPSetId = IPSetId,
+        self.id = self.get_id()
+        if not self.id:
+            # if the ipset does not exists, create it and add it to the rule
+            self.id = self.create()
+            self.add_to_rule()
+
+
+    def get_id(self):
+        """Get the ipset id from the list of ipsets"""
+
+        res = self.client.list_ip_sets()
+        for ipset in res['IPSets']:
+
+            # return the ipset id if found
+            if ipset['Name'] == self.ipset_name:
+                return ipset['IPSetId']
+
+        return None
+
+
+    def create(self):
+        """Create the ipset and returns the id"""
+
+        change_token = self.client.get_change_token()['ChangeToken']
+        return self.client.create_ip_set(
+            Name = self.ipset_name,
+            ChangeToken = change_token
+        )['IPSet']['IPSetId']
+
+
+    def add_to_rule(self):
+        """Add the ipset to the WAF rule"""
+
+        # get the rule_id from the list of rules
+        res = self.client.list_rules()
+        rule_id = [ rule['RuleId'] for rule in res['Rules'] if rule['Name'] == RULE_NAME ][0]
+
+        # add the ipset to the rule
+        change_token = self.client.get_change_token()['ChangeToken']
+        self.client.update_rule(
+            RuleId = rule_id,
+            ChangeToken = change_token,
+            Updates = [{
+                'Action': 'INSERT',
+                'Predicate': {
+                    'Negated': False,
+                    'Type': 'IPMatch',
+                    'DataId': self.id
+                }
+            }]
+        )
+
+    def update(self, ips):
+        """Update the IP set with additional ips"""
+
+        self.ips = ips
+
+        change_token = self.client.get_change_token()['ChangeToken']
+        self.client.update_ip_set(
+            IPSetId = self.id,
             ChangeToken = change_token,
             Updates = [ {
                 'Action': 'INSERT',
@@ -63,6 +121,13 @@ def ban_ips(session, ips):
                 }   
             } for ip in ips ]
         )
+
+
+def ban_ips(session, ips):
+
+    if not TEST:
+        ipset = IPset(session)
+        ipset.update(ips)
 
     else:
         for ip in ips:
@@ -78,7 +143,6 @@ def ban_abuse(session):
     logfile_prefix = 'AWSLogs/removed-secrets/elasticloadbalancing/eu-central-1/' + logfile_datetime.strftime('%Y/%m/%d') + '/removed-secrets_elasticloadbalancing_eu-central-1_removed-secrets-removed-secrets_' + logfile_datetime.strftime('%Y%m%dT%H%MZ')
 
     ips = {}
-
     for stream in get_gzip(session, logfile_prefix):
         for line in gz_stream_to_lines(stream):
 
