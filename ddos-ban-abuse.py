@@ -134,8 +134,12 @@ def ban_ips(session, ips):
             print(ip)
 
 
-def ban_abuse(session):
+def lambda_handler(event, context, session=None):
     """Lambda handler"""
+
+    if not session:
+        # code is executed inside aws, create a session
+        session = boto3.Session()
 
     now = dt.datetime.utcnow()
     logfile_datetime = round_datetime(now, minutes=5)
@@ -164,4 +168,4 @@ def ban_abuse(session):
 if __name__ == "__main__":
 
     session = boto3.Session(profile_name='admin') if not TEST else None
-    ban_abuse(session)
+    lambda_handler(session=session)
