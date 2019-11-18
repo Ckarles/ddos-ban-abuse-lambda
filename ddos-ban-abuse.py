@@ -148,9 +148,11 @@ def ban_abuse(session):
 
             # extract the IP part of the 4th space-delimited content in a line of log
             ip = re.match('^(?:[^ ]+ ){3}(.+?):.*$', line)[1]
+            client_version = re.match('^(?:[^"]+"){3}([^"]+)".*$', line)[1]
 
-            # increment the number of occurence of this ip (default to 0) by 1
-            ips[ip] = ips.get(ip, 0) + 1
+            if not re.match('Apache-HttpClient\/[^ ]* \(Java\/[^)]*\)', client_version):
+                # increment the number of occurence of this ip (default to 0) by 1
+                ips[ip] = ips.get(ip, 0) + 1
 
     # filter the IPs
     # ban if the occurence of the IP reached the threshold limit
