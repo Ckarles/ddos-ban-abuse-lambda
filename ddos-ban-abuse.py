@@ -9,7 +9,44 @@ BAN_THRESHOLD = 50
 IPSET_NAME = 'ddos blacklist'
 RULE_NAME = 'match a blacklisted IPSet'
 
-TEST = True
+PREFIX_ROOTDIR = 'AWSLogs'
+PREFIX_ACCOUNTID = 'removed-secrets'
+PREFIX_SERVICE = 'elasticloadbalancing'
+PREFIX_REGION = 'eu-central-1'
+PREFIX_LOADBALANCER_RESSOURCETYPE = 'app'
+PREFIX_LOADBALANCER_NAME = 'removed-secrets'
+PREFIX_LOADBALANCER_ID = 'removed-secrets'
+
+TEST = False
+
+def get_logfile_prefix(logfile_datetime):
+    """Returns the logfile prefix to look for in s3"""
+
+    loadbalancer_resourcepath = '.'.join((
+        PREFIX_LOADBALANCER_RESSOURCETYPE,
+        PREFIX_LOADBALANCER_NAME,
+        PREFIX_LOADBALANCER_ID
+    ))
+
+    s3_filename_prefix = '_'.join((
+        PREFIX_ACCOUNTID,
+        PREFIX_SERVICE,
+        PREFIX_REGION,
+        loadbalancer_resourcepath,
+        logfile_datetime.strftime('%Y%m%dT%H%MZ')
+    ))
+
+    s3_object_prefix = '/'.join((
+        PREFIX_ROOTDIR,
+        PREFIX_ACCOUNTID,
+        PREFIX_SERVICE,
+        PREFIX_REGION,
+        logfile_datetime.strftime('%Y/%m/%d'),
+        s3_filename_prefix
+    ))
+
+    return s3_object_prefix
+
 
 def gz_stream_to_lines(stream):
     """Iterate over utf-8 lines from a gzip stream of data"""
@@ -134,7 +171,7 @@ def ban_ips(session, ips):
             print(ip)
 
 
-def lambda_handler(event, context, session=None):
+def lambda_handler(event=None, context=None, session=None):
     """Lambda handler"""
 
     if not session:
@@ -144,7 +181,7 @@ def lambda_handler(event, context, session=None):
     now = dt.datetime.utcnow()
     logfile_datetime = round_datetime(now, minutes=5)
 
-    logfile_prefix = 'AWSLogs/removed-secrets/elasticloadbalancing/eu-central-1/' + logfile_datetime.strftime('%Y/%m/%d') + '/removed-secrets_elasticloadbalancing_eu-central-1_removed-secrets-removed-secrets_' + logfile_datetime.strftime('%Y%m%dT%H%MZ')
+    logfile_prefix = get_logfile_prefix(logfile_datetime)
 
     ips = {}
     for stream in get_gzip(session, logfile_prefix):
