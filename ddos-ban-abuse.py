@@ -23,7 +23,6 @@ class Logs:
 
         self.resource = session.resource('s3')
         self.bucket = self.resource.Bucket(BUCKET_NAME)
-
         self.prefix = self.get_logfile_prefix(datetime)
 
     def __iter__(self):
@@ -125,7 +124,7 @@ class IPset:
 
         # add the ipset to the rule
         change_token = self.client.get_change_token()['ChangeToken']
-        self.client.update_rule(
+        return self.client.update_rule(
             RuleId = rule_id,
             ChangeToken = change_token,
             Updates = [{
@@ -144,7 +143,7 @@ class IPset:
         self.ips = ips
 
         change_token = self.client.get_change_token()['ChangeToken']
-        self.client.update_ip_set(
+        return self.client.update_ip_set(
             IPSetId = self.id,
             ChangeToken = change_token,
             Updates = [ {
@@ -183,6 +182,9 @@ def lambda_handler(event=None, context=None, session=None):
     ipset = IPset(session)
     ipset.update(ips_to_ban)
     print('IPs banned: ' + str(ips_to_ban))
+
+    # return mandatory to terminate the lambda
+    return ips_to_ban
 
 
 if __name__ == "__main__":
