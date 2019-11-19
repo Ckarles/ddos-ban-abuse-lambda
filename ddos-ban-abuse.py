@@ -4,11 +4,11 @@ import gzip
 import datetime as dt
 import boto3
 
-BUCKET_NAME = 'removed-secrets'
 BAN_THRESHOLD = 50
 IPSET_NAME = 'ddos blacklist'
 RULE_NAME = 'match a blacklisted IPSet'
 
+BUCKET_NAME = 'removed-secrets'
 PREFIX_ROOTDIR = 'AWSLogs'
 PREFIX_ACCOUNTID = 'removed-secrets'
 PREFIX_SERVICE = 'elasticloadbalancing'
@@ -17,70 +17,67 @@ PREFIX_LOADBALANCER_RESSOURCETYPE = 'app'
 PREFIX_LOADBALANCER_NAME = 'removed-secrets'
 PREFIX_LOADBALANCER_ID = 'removed-secrets'
 
-TEST = False
+class Logs:
 
-def get_logfile_prefix(logfile_datetime):
-    """Returns the logfile prefix to look for in s3"""
+    def __init__(self, session, datetime=dt.datetime.utcnow()):
 
-    loadbalancer_resourcepath = '.'.join((
-        PREFIX_LOADBALANCER_RESSOURCETYPE,
-        PREFIX_LOADBALANCER_NAME,
-        PREFIX_LOADBALANCER_ID
-    ))
+        self.resource = session.resource('s3')
+        self.bucket = self.resource.Bucket(BUCKET_NAME)
 
-    s3_filename_prefix = '_'.join((
-        PREFIX_ACCOUNTID,
-        PREFIX_SERVICE,
-        PREFIX_REGION,
-        loadbalancer_resourcepath,
-        logfile_datetime.strftime('%Y%m%dT%H%MZ')
-    ))
+        self.prefix = self.get_logfile_prefix(datetime)
 
-    s3_object_prefix = '/'.join((
-        PREFIX_ROOTDIR,
-        PREFIX_ACCOUNTID,
-        PREFIX_SERVICE,
-        PREFIX_REGION,
-        logfile_datetime.strftime('%Y/%m/%d'),
-        s3_filename_prefix
-    ))
+    def __iter__(self):
+        """Iterates over each line of the gz-decompressed http stream"""
 
-    return s3_object_prefix
+        for obj in self.bucket.objects.filter(Prefix=self.prefix):
+            stream = obj.get()['Body']
+            with gzip.GzipFile(fileobj=stream) as bytes:
+                with io.TextIOWrapper(bytes) as text:
+                    yield from text
 
 
-def gz_stream_to_lines(stream):
-    """Iterate over utf-8 lines from a gzip stream of data"""
+    def get_logfile_prefix(self, datetime):
+        """Returns the logfile prefix to look for in s3"""
 
-    with gzip.GzipFile(fileobj=stream) as bytes:
-        with io.TextIOWrapper(bytes) as text:
-            yield from text
+        rounded_dt = self.round_datetime(datetime, minutes=5)
+
+        loadbalancer_resourcepath = '.'.join((
+            PREFIX_LOADBALANCER_RESSOURCETYPE,
+            PREFIX_LOADBALANCER_NAME,
+            PREFIX_LOADBALANCER_ID
+        ))
+
+        s3_filename_prefix = '_'.join((
+            PREFIX_ACCOUNTID,
+            PREFIX_SERVICE,
+            PREFIX_REGION,
+            loadbalancer_resourcepath,
+            rounded_dt.strftime('%Y%m%dT%H%MZ')
+        ))
+
+        s3_object_prefix = '/'.join((
+            PREFIX_ROOTDIR,
+            PREFIX_ACCOUNTID,
+            PREFIX_SERVICE,
+            PREFIX_REGION,
+            rounded_dt.strftime('%Y/%m/%d'),
+            s3_filename_prefix
+        ))
+
+        return s3_object_prefix
 
 
-def get_gzip(session, logfile_prefix):
-    """Get gzip stream and iterate chunks of gzipped-compressed data"""
+    def round_datetime(self, d, *args, **kwargs):
+        """Round a datetime with a specific modulus"""
 
-    if not TEST:
-        s3 = session.resource('s3')
-        bucket = s3.Bucket(BUCKET_NAME)
-        for s3_object in bucket.objects.filter(Prefix=logfile_prefix):
-            yield s3_object.get()['Body']
-
-    else:
-        with open('test.log.gz', 'rb') as gz_stream:
-            yield gz_stream
-
-
-def round_datetime(d, *args, **kwargs):
-    """Round a datetime with a specific modulus"""
-
-    td = dt.timedelta(
-        hours = d.hour,
-        minutes = d.minute,
-        seconds = d.second,
-        microseconds = d.microsecond
-    )
-    rounded_td = td - td % dt.timedelta(*args, **kwargs)
-    return dt.datetime.combine(d.date(), dt.time(), d.tzinfo) + rounded_td
+        td = dt.timedelta(
+            hours = d.hour,
+            minutes = d.minute,
+            seconds = d.second,
+            microseconds = d.microsecond
+        )
+        rounded_td = td - td % dt.timedelta(*args, **kwargs)
+        return dt.datetime.combine(d.date(), dt.time(), d.tzinfo) + rounded_td
 
 
 class IPset:
@@ -160,17 +157,6 @@ class IPset:
         )
 
 
-def ban_ips(session, ips):
-
-    if not TEST:
-        ipset = IPset(session)
-        ipset.update(ips)
-
-    else:
-        for ip in ips:
-            print(ip)
-
-
 def lambda_handler(event=None, context=None, session=None):
     """Lambda handler"""
 
@@ -178,31 +164,28 @@ def lambda_handler(event=None, context=None, session=None):
         # code is executed inside aws, create a session
         session = boto3.Session()
 
-    now = dt.datetime.utcnow()
-    logfile_datetime = round_datetime(now, minutes=5)
-
-    logfile_prefix = get_logfile_prefix(logfile_datetime)
-
     ips = {}
-    for stream in get_gzip(session, logfile_prefix):
-        for line in gz_stream_to_lines(stream):
+    for line in Logs(session):
 
-            # extract the IP part of the 4th space-delimited content in a line of log
-            ip = re.match('^(?:[^ ]+ ){3}(.+?):.*$', line)[1]
-            client_version = re.match('^(?:[^"]+"){3}([^"]+)".*$', line)[1]
+        # extract the IP part of the 4th space-delimited content in a line of log
+        ip = re.match('^(?:[^ ]+ ){3}(.+?):.*$', line)[1]
+        client_version = re.match('^(?:[^"]+"){3}([^"]+)".*$', line)[1]
 
-            if not re.match('Apache-HttpClient\/[^ ]* \(Java\/[^)]*\)', client_version):
-                # increment the number of occurence of this ip (default to 0) by 1
-                ips[ip] = ips.get(ip, 0) + 1
+        if not re.match('Apache-HttpClient\/[^ ]* \(Java\/[^)]*\)', client_version):
+            # increment the number of occurence of this ip (default to 0) by 1
+            ips[ip] = ips.get(ip, 0) + 1
+
 
     # filter the IPs
     # ban if the occurence of the IP reached the threshold limit
     ips_to_ban = [ ip for ip in ips if ips[ip] >= BAN_THRESHOLD ]
 
-    ban_ips(session, ips_to_ban)
+    ipset = IPset(session)
+    ipset.update(ips_to_ban)
+    print('IPs banned: ' + str(ips_to_ban))
 
 
 if __name__ == "__main__":
 
-    session = boto3.Session(profile_name='admin') if not TEST else None
+    session = boto3.Session(profile_name='admin')
     lambda_handler(session=session)
