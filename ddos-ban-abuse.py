@@ -2,11 +2,12 @@ import io
 import re
 import gzip
 import datetime as dt
+from os import environ as env
 import boto3
 
-BAN_THRESHOLD = 50
-IPSET_NAME = 'ddos blacklist'
-RULE_NAME = 'match a blacklisted IPSet'
+BAN_THRESHOLD = env.get('BAN_THRESHOLD', 50)
+IPSET_NAME = env.get('IPSET_NAME', 'ddos blacklist - default')
+RULE_NAME = env.get('RULE_NAME', 'match a blacklisted IPSet')
 
 BUCKET_NAME = 'removed-secrets'
 PREFIX_ROOTDIR = 'AWSLogs'
