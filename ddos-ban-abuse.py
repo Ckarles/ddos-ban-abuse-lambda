@@ -5,9 +5,9 @@ import datetime as dt
 from os import environ as env
 import boto3
 
-BAN_THRESHOLD = env.get('BAN_THRESHOLD', 50)
+BAN_THRESHOLD = 50
 IPSET_NAME = env.get('IPSET_NAME', 'ddos blacklist - default')
-RULE_NAME = env.get('RULE_NAME', 'match a blacklisted IPSet')
+RULE_NAME = 'match a blacklisted IPSet'
 
 BUCKET_NAME = 'removed-secrets'
 PREFIX_ROOTDIR = 'AWSLogs'
@@ -39,7 +39,7 @@ class Logs:
     def get_logfile_prefix(self, datetime):
         """Returns the logfile prefix to look for in s3"""
 
-        rounded_dt = self.round_datetime(datetime, minutes=5)
+        rounded_dt = round_datetime(datetime, minutes=5)
 
         loadbalancer_resourcepath = '.'.join((
             PREFIX_LOADBALANCER_RESSOURCETYPE,
@@ -65,19 +65,6 @@ class Logs:
         ))
 
         return s3_object_prefix
-
-
-    def round_datetime(self, d, *args, **kwargs):
-        """Round a datetime with a specific modulus"""
-
-        td = dt.timedelta(
-            hours = d.hour,
-            minutes = d.minute,
-            seconds = d.second,
-            microseconds = d.microsecond
-        )
-        rounded_td = td - td % dt.timedelta(*args, **kwargs)
-        return dt.datetime.combine(d.date(), dt.time(), d.tzinfo) + rounded_td
 
 
 class IPset:
@@ -155,6 +142,19 @@ class IPset:
                 }   
             } for ip in ips ]
         )
+
+
+def round_datetime(d, *args, **kwargs):
+        """Round a datetime with a specific modulus"""
+
+        td = dt.timedelta(
+            hours = d.hour,
+            minutes = d.minute,
+            seconds = d.second,
+            microseconds = d.microsecond
+        )
+        rounded_td = td - td % dt.timedelta(*args, **kwargs)
+        return dt.datetime.combine(d.date(), dt.time(), d.tzinfo) + rounded_td
 
 
 def lambda_handler(event=None, context=None, session=None):
