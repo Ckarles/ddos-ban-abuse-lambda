@@ -44,6 +44,16 @@ class Lambda():
             Environment = {'Variables': v}
         )
 
+def change_ipset(ipset):
+    """Change the IPSET_NAME in lambda's environment variables"""
+    # get the env variables
+    env_var = aws_lambda.env_vars
+    print('Replacing IPSET_NAME: {} -> {}'.format(env_var['IPSET_NAME'], ipset))
+
+    # add the new variables
+    env_var['IPSET_NAME'] = ipset
+    aws_lambda.env_vars = env_var
+
 def parse_args():
     """Return parsed arguments from the invokation"""
     parser = argparse.ArgumentParser()
@@ -55,17 +65,6 @@ def parse_args():
     parser.add_argument('-k', '--skip-deploy', help='Skip deployment of the code', action='store_true')
 
     return vars(parser.parse_args())
-
-def change_ipset(ipset):
-    """Change the IPSET_NAME in lambda's environment variables"""
-    # get the env variables
-    env_var = aws_lambda.env_vars
-    print('Replacing IPSET_NAME: {} -> {}'.format(env_var['IPSET_NAME'], ipset))
-
-    # add the new variables
-    env_var['IPSET_NAME'] = ipset
-    aws_lambda.env_vars = env_var
-
 
 if __name__ == "__main__":
 
