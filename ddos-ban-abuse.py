@@ -1,13 +1,16 @@
 import io
 import re
 import gzip
+import socket
 import datetime as dt
 from os import environ as env
 import boto3
 
 BAN_THRESHOLD = 50
-IPSET_NAME = env.get('IPSET_NAME', 'ddos blacklist - default')
-RULE_NAME = 'match a blacklisted IPSet'
+BLACKLIST_IPSET_NAME = env.get('BLACKLIST_IPSET_NAME', 'ddos blacklist - default')
+WHITELIST_IPSET_NAME = 'whitelist internal IPs & offices'
+BLACKLIST_RULE_NAME = 'match a blacklisted IPSet'
+WHITELIST_RULE_NAME = 'match whitelist internal IPs & offices'
 
 BUCKET_NAME = 'removed-secrets'
 PREFIX_ROOTDIR = 'AWSLogs'
@@ -69,9 +72,10 @@ class Logs:
 
 class IPset:
 
-    def __init__(self, session):
+    def __init__(self, session, ipset_name):
         self.client = session.client('waf-regional')
-        self.ipset_name = IPSET_NAME
+        self.ipset_name = ipset_name
+        self.rule_name = rule_name
 
         self.id = self.get_id()
         if not self.id:
@@ -108,7 +112,7 @@ class IPset:
 
         # get the rule_id from the list of rules
         res = self.client.list_rules()
-        rule_id = [ rule['RuleId'] for rule in res['Rules'] if rule['Name'] == RULE_NAME ][0]
+        rule_id = [ rule['RuleId'] for rule in res['Rules'] if rule['Name'] == self.rule_name ][0]
 
         # add the ipset to the rule
         change_token = self.client.get_change_token()['ChangeToken']
@@ -164,6 +168,15 @@ def lambda_handler(event=None, context=None, session=None):
         # code is executed inside aws, create a session
         session = boto3.Session()
 
+    # whitelist
+    whitelist = []
+    # add provider to whitelist
+    whitelist.extend(socket.gethostbyname_ex('callback.provider.com')[2])
+    # update the whitelist on aws
+    whitelist_ipset = IPset(session, WHITELIST_IPSET_NAME, WHITELIST_RULE_NAME)
+    ipset.update(whitelist)
+    print('IPs whitelisted: ' + str(whitelist))
+
     ips = {}
     for line in Logs(session):
 
@@ -178,11 +191,11 @@ def lambda_handler(event=None, context=None, session=None):
 
     # filter the IPs
     # ban if the occurence of the IP reached the threshold limit
-    ips_to_ban = [ ip for ip in ips if ips[ip] >= BAN_THRESHOLD ]
+    blacklist = [ ip for ip in ips if ips[ip] >= BAN_THRESHOLD ]
 
-    ipset = IPset(session)
-    ipset.update(ips_to_ban)
-    print('IPs banned: ' + str(ips_to_ban))
+    ipset = IPset(session, BLACKLIST_IPSET_NAME, BLACKLIST_RULE_NAME)
+    ipset.update(blacklist)
+    print('IPs banned: ' + str(blacklist))
 
     # return mandatory to terminate the lambda
     return ips_to_ban

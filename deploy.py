@@ -45,13 +45,13 @@ class Lambda():
         )
 
 def change_ipset(ipset):
-    """Change the IPSET_NAME in lambda's environment variables"""
+    """Change the BLACKLIST_IPSET_NAME in lambda's environment variables"""
     # get the env variables
     env_var = aws_lambda.env_vars
-    print('Replacing IPSET_NAME: {} -> {}'.format(env_var['IPSET_NAME'], ipset))
+    print('Replacing BLACKLIST_IPSET_NAME: {} -> {}'.format(env_var['BLACKLIST_IPSET_NAME'], ipset))
 
     # add the new variables
-    env_var['IPSET_NAME'] = ipset
+    env_var['BLACKLIST_IPSET_NAME'] = ipset
     aws_lambda.env_vars = env_var
 
 def parse_args():
@@ -61,7 +61,7 @@ def parse_args():
     group = parser.add_mutually_exclusive_group()
     group.add_argument('-on', '--enable', help='Enable the lambda by adding the cloudwatch trigger', action='store_true')
     group.add_argument('-off', '--disable', help='Disable the lambda by removing the cloudwatch trigger', action='store_true')
-    parser.add_argument('-i', '--ipset', help='Change the lambda ipset name')
+    parser.add_argument('-i', '--ipset', help='Change the lambda blacklist ipset name')
     parser.add_argument('-k', '--skip-deploy', help='Skip deployment of the code', action='store_true')
 
     return vars(parser.parse_args())
@@ -83,7 +83,7 @@ if __name__ == "__main__":
 
     # change the ipset name configuration if requested
     if args['ipset']:
-        print('Changing IPSET_NAME env variable in lambda configuration')
+        print('Changing BLACKLIST_IPSET_NAME env variable in lambda configuration')
         change_ipset(args['ipset'])
 
     if args['enable']:
